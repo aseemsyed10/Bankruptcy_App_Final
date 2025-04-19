@@ -1,0 +1,19 @@
+# Dockerfile.frontend
+
+FROM python:3.9-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install Streamlit and other dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir streamlit requests pandas plotly shap
+
+# Copy frontend app code
+COPY . .
+
+# Expose Streamlit's port
+EXPOSE 8501
+
+# Run the Streamlit app
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
