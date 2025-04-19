@@ -25,3 +25,13 @@ It includes:
 ```bash
 git clone https://github.com/aseemsyed10/Bankruptcy_App_Final.git
 cd Bankruptcy_App_Final
+Build the Docker containers:
+docker compose build
+Run the app:
+docker compose up
+{
+  "features": [0.1, 0.3, ..., 0.97]  // Total of 95 values
+}
+OpenAPI schema is available at:
+http://localhost:8000/openapi.json
+Also included in this repo as openapi_schema.json
