@@ -33,3 +33,8 @@ The *risk estimate* displayed in Streamlit is now the sigmoid-calibrated score, 
 **Limitations:** Only approximately 10% of data is allocated to each calibration and threshold set, and the minority class is rare. Threshold precision and calibration may therefore be unstable. Comparisons use the same source dataset, not out-of-time or external company samples. Better portfolio validation would use temporal or external testing, confidence intervals and calibration curves. Do not treat any prediction as financial advice.
 
 After pulling this branch, rebuild images to get the refined training artifacts: `docker compose up --build`. Old containers continue to serve old artifacts until rebuilt.
+
+## Two screening modes and audit plots
+The dashboard and API now support `high_recall` and `higher_precision`. Both thresholds are chosen **only** from the threshold-development partition: the former requires at least 85% recall there (where feasible), the latter at least 70%. These constraints are not guarantees on the final holdout or new companies. `artifacts/metrics.json` reports the independent holdout confusion matrices, precision, recall, and F1 for both modes. `artifacts/precision_recall_curve.png` and `artifacts/calibration_curve.png` are exported automatically by training as diagnostics.
+
+Run `docker compose up --build` after `git pull` to rebuild the model and frontend, and test both modes using the same uploaded company row. Neither threshold is appropriate for regulated financial decisions without external validation.
