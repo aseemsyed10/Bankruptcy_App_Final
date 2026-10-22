@@ -1,7 +1,7 @@
 """FastAPI inference service; train separately with python train.py."""
 from pathlib import Path
 from functools import lru_cache
-from typing import Dict
+from typing import Dict, Literal
 import joblib
 import numpy as np
 import pandas as pd
@@ -13,6 +13,7 @@ app = FastAPI(title="Bankruptcy Risk Prediction API", version="2.0")
 
 class InputData(BaseModel):
     values: Dict[str, float] = Field(..., description="Financial ratio mapping keyed by feature name")
+    screening_mode: Literal["high_recall", "higher_precision"] = "high_recall"
 
 class Prediction(BaseModel):
     probability: float
@@ -20,6 +21,7 @@ class Prediction(BaseModel):
     explanation: dict | None = None
     decision_threshold: float
     risk_label: str
+    screening_mode: str
 
 @lru_cache(maxsize=1)
 def load_bundle():
@@ -49,7 +51,7 @@ def predict(data: InputData):
     pipeline = bundle["pipeline"]
     score = pipeline.decision_function(frame).reshape(-1, 1)
     probability = float(bundle["calibrator"].predict_proba(score)[0, 1])
-    threshold = float(bundle["threshold"])
+    threshold = float(bundle["mode_thresholds"][data.screening_mode])
     prediction = int(probability >= threshold)
     explanation = None
     try:
@@ -60,4 +62,5 @@ def predict(data: InputData):
         pass
     return Prediction(probability=probability, prediction=prediction, explanation=explanation,
                       decision_threshold=threshold,
-                      risk_label="Flagged for review" if prediction else "Not flagged")
+                      risk_label="Flagged for review" if prediction else "Not flagged",
+                      screening_mode=data.screening_mode)
