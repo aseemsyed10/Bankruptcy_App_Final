@@ -63,7 +63,8 @@ def train():
         "holdout_samples": int(len(y_test)),
     }
     ARTIFACTS.mkdir(exist_ok=True)
-    joblib.dump({"pipeline": model, "feature_names": X.columns.tolist()}, ARTIFACTS / "model.joblib")
+    background = model[:-1].transform(X_train.sample(n=min(200, len(X_train)), random_state=42))
+    joblib.dump({"pipeline": model, "feature_names": X.columns.tolist(), "shap_background": background}, ARTIFACTS / "model.joblib")
     (ARTIFACTS / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     print(json.dumps({k: v for k, v in metrics.items() if k != "classification_report"}, indent=2))
     return metrics
