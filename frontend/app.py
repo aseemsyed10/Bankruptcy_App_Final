@@ -18,8 +18,11 @@ except (requests.RequestException, KeyError, ValueError) as error:
     st.error(f"Prediction service unavailable: {error}")
     st.stop()
 
+mode = st.radio("Screening mode", options=["high_recall", "higher_precision"], format_func=lambda x: "High recall (miss fewer bankruptcies)" if x == "high_recall" else "Higher precision (fewer false alerts)", horizontal=True)
+st.caption("Modes use thresholds chosen from development data; actual recall and precision may differ on new companies.")
+
 def request_prediction(values):
-    response = requests.post(API + "/predict", json={"values": values}, timeout=30)
+    response = requests.post(API + "/predict", json={"values": values, "screening_mode": mode}, timeout=30)
     response.raise_for_status()
     return response.json()
 
@@ -52,7 +55,7 @@ if upload is not None:
                     "alert_threshold": [x["decision_threshold"] for x in results],
                     "flagged_for_review": [x["prediction"] for x in results]
                 })
-                st.dataframe(output, use_container_width=True)
+                st.dataframe(output, width="stretch")
                 st.download_button("Download predictions", output.to_csv(index=False), "bankruptcy_predictions.csv")
                 if results:
                     st.session_state["prediction"] = results[0]
@@ -79,6 +82,7 @@ if result:
     a.metric("Calibrated risk estimate", f"{result['probability']:.1%}")
     b.metric("Review alert threshold", f"{result['decision_threshold']:.1%}")
     c.metric("Model decision", result["risk_label"])
+    st.caption("Screening mode used: " + result["screening_mode"].replace("_", " ").title())
     st.caption("A screening flag is not confirmation of bankruptcy. Threshold selected from separate development data; evaluation and limitations are in artifacts/metrics.json.")
     explanation = result.get("explanation")
     if explanation:
@@ -90,7 +94,7 @@ if result:
                      orientation="h", color="SHAP log-odds", color_continuous_scale="RdBu_r",
                      title="Top contributing financial indicators")
         fig.update_layout(height=650, coloraxis_showscale=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.caption("Positive values raise bankruptcy log-odds; negative values reduce them. SHAP is not a causal explanation.")
     else:
         st.warning("SHAP explanation unavailable; prediction shown without an explanation.")
