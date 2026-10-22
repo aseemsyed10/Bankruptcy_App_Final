@@ -21,3 +21,15 @@ The frontend accepts a named-feature CSV or a single manually entered company an
 ### Changes from initial submission
 
 The original submission had an empty Streamlit frontend, no fitted feature selector, no calculated SHAP attribution and no implemented Great Expectations validation. This branch addresses these items and separates training from inference. Do not present this as the original graded submission; check tests and deployment before merging.
+
+## Model refinement (October 2026)
+
+The revised pipeline uses a fixed 20% stratified holdout, and divides the remaining development data into **disjoint** model-fitting (60% total), sigmoid-calibration (10%), and threshold-tuning (10%) partitions. Five-fold cross-validation on the fitting partition selects up to 10/20/40/95 features and the regularization parameter, optimizing average precision. A fixed-regularization all-95-feature CV baseline is reported for comparison.
+
+A Platt logistic calibrator fits the model's decision scores on calibration data only. The review-alert threshold is chosen on the separate threshold-tuning partition by maximizing precision while requiring at least 70% bankruptcy recall there (if feasible). The final holdout remains untouched until evaluation. It reports holdout PR-AUC, ROC-AUC, Brier score (raw vs calibrated), confusion matrix, precision, recall and F1.
+
+The *risk estimate* displayed in Streamlit is now the sigmoid-calibrated score, not the original class-weighted logistic probability. The binary output is explicitly a **screening flag**, not a factual determination of bankruptcy. SHAP values still describe the underlying linear model log-odds **before calibration**, not shifts in calibrated probabilities. Review `artifacts/metrics.json` before interpreting results.
+
+**Limitations:** Only approximately 10% of data is allocated to each calibration and threshold set, and the minority class is rare. Threshold precision and calibration may therefore be unstable. Comparisons use the same source dataset, not out-of-time or external company samples. Better portfolio validation would use temporal or external testing, confidence intervals and calibration curves. Do not treat any prediction as financial advice.
+
+After pulling this branch, rebuild images to get the refined training artifacts: `docker compose up --build`. Old containers continue to serve old artifacts until rebuilt.
