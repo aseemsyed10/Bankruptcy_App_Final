@@ -13,7 +13,7 @@ def explain_one(frame: pd.DataFrame):
     transformed = pipe[:-1].transform(frame[bundle["feature_names"]])
     names = np.asarray(bundle["feature_names"])[pipe.named_steps["selector"].get_support()].tolist()
     estimator = pipe.named_steps["classifier"]
-    explainer = shap.LinearExplainer(estimator, transformed)
+    explainer = shap.LinearExplainer(estimator, bundle["shap_background"])
     explanation = explainer(transformed)
     return {
         "feature_names": names,
@@ -32,7 +32,7 @@ if __name__ == "__main__":
     sample = df[bundle["feature_names"]].sample(n=min(200, len(df)), random_state=42)
     transformed = pipeline[:-1].transform(sample)
     selected_names = np.asarray(bundle["feature_names"])[pipeline.named_steps["selector"].get_support()]
-    explainer = shap.LinearExplainer(pipeline.named_steps["classifier"], transformed)
+    explainer = shap.LinearExplainer(pipeline.named_steps["classifier"], bundle["shap_background"])
     explanation = explainer(transformed)
     explanation.feature_names = selected_names.tolist()
     shap.plots.beeswarm(explanation, show=False, max_display=20)
