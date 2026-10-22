@@ -18,6 +18,8 @@ class Prediction(BaseModel):
     probability: float
     prediction: int
     explanation: dict | None = None
+    decision_threshold: float
+    risk_label: str
 
 @lru_cache(maxsize=1)
 def load_bundle():
@@ -45,8 +47,10 @@ def predict(data: InputData):
         raise HTTPException(status_code=422, detail="All predictors must be finite numeric values")
     frame = pd.DataFrame([inputs], columns=names)
     pipeline = bundle["pipeline"]
-    probability = float(pipeline.predict_proba(frame)[0, 1])
-    prediction = int(pipeline.predict(frame)[0])
+    score = pipeline.decision_function(frame).reshape(-1, 1)
+    probability = float(bundle["calibrator"].predict_proba(score)[0, 1])
+    threshold = float(bundle["threshold"])
+    prediction = int(probability >= threshold)
     explanation = None
     try:
         from explain import explain_one
@@ -54,4 +58,6 @@ def predict(data: InputData):
     except Exception:
         # SHAP errors should not block inference; surface absence to the user.
         pass
-    return Prediction(probability=probability, prediction=prediction, explanation=explanation)
+    return Prediction(probability=probability, prediction=prediction, explanation=explanation,
+                      decision_threshold=threshold,
+                      risk_label="Flagged for review" if prediction else "Not flagged")
