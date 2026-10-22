@@ -1,10 +1,4 @@
-fastapi
-uvicorn
-pydantic
-joblib
-scikit-learn
-pandas
-numpy
-shap
-plotly
-great_expectations
+streamlit>=1.33,<2
+requests>=2.31,<3
+pandas>=2.1,<3
+plotly>=5.18,<7

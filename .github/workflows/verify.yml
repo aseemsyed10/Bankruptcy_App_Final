@@ -1,0 +1,24 @@
+name: Verify Bankruptcy App
+on:
+  push:
+    branches: [upgrade/frontend-feature-selection-shap-ge]
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Validate and train
+        run: python train.py
+      - name: Run tests
+        run: python -m pytest -q
+      - name: Generate global SHAP beeswarm
+        run: MPLBACKEND=Agg python explain.py
+      - name: Check API imports
+        run: python -c "from main import app; print(app.title)"

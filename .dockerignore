@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.git/
+.github/
+python-*.exe
+*.ipynb
+*.html
+*.zip
+artifacts/
+.pytest_cache/
