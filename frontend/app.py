@@ -1,4 +1,4 @@
-"""User-facing Streamlit dashboard for bankruptcy-risk predictions."""
+"""Streamlit dashboard: CSV-first prediction and explainable calibrated scores."""
 import os
 import pandas as pd
 import plotly.express as px
@@ -8,7 +8,8 @@ import streamlit as st
 API = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
 st.set_page_config(page_title="Bankruptcy Risk Explorer", page_icon="📊", layout="wide")
 st.title("Bankruptcy Risk Explorer")
-st.caption("Research / education only. Model predictions are not financial advice.")
+st.caption("Research / education only · Calibrated estimates on an internal holdout; not financial advice.")
+
 try:
     response = requests.get(API + "/features", timeout=15)
     response.raise_for_status()
@@ -17,54 +18,79 @@ except (requests.RequestException, KeyError, ValueError) as error:
     st.error(f"Prediction service unavailable: {error}")
     st.stop()
 
-st.write(f"The model requires {len(names)} named financial features.")
-with st.expander("Required feature names"):
+def request_prediction(values):
+    response = requests.post(API + "/predict", json={"values": values}, timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+st.subheader("1. Upload company financial data")
+st.write(f"Upload a CSV containing all {len(names)} financial indicators. This is the easiest way to test with real dataset rows.")
+upload = st.file_uploader("CSV containing the model's exact financial feature names", type=["csv"])
+with st.expander("Show required feature names"):
     st.write(names)
 
-upload = st.file_uploader("CSV file with the required financial feature columns", type="csv")
 if upload is not None:
     try:
         source = pd.read_csv(upload)
         source.columns = source.columns.str.strip()
         missing = [name for name in names if name not in source.columns]
         if missing:
-            st.error("Missing: " + ", ".join(missing))
-        elif st.button("Predict uploaded records (first 100)"):
-            predictions = []
-            for _, row in source.head(100).iterrows():
-                response = requests.post(API + "/predict", json={"values": {n: float(row[n]) for n in names}}, timeout=30)
-                response.raise_for_status()
-                predictions.append(response.json())
-            output = pd.DataFrame({"bankruptcy_probability": [r["probability"] for r in predictions], "predicted_class": [r["prediction"] for r in predictions]})
-            st.dataframe(output)
-            st.download_button("Download predictions", output.to_csv(index=False), "bankruptcy_predictions.csv")
-            if predictions:
-                st.session_state["prediction"] = predictions[0]
+            st.error("Missing columns: " + ", ".join(missing))
+        elif source.empty:
+            st.error("The uploaded CSV is empty.")
+        else:
+            index = st.number_input("Choose a company row to explain", min_value=0, max_value=len(source)-1, value=0, step=1)
+            if st.button("Predict selected company", type="primary"):
+                result = request_prediction({n: float(source.iloc[index][n]) for n in names})
+                st.session_state["prediction"] = result
+            if st.button("Predict first 100 companies"):
+                results = [request_prediction({n: float(row[n]) for n in names})
+                           for _, row in source.head(100).iterrows()]
+                output = pd.DataFrame({
+                    "row_index": source.head(100).index,
+                    "calibrated_probability": [x["probability"] for x in results],
+                    "alert_threshold": [x["decision_threshold"] for x in results],
+                    "flagged_for_review": [x["prediction"] for x in results]
+                })
+                st.dataframe(output, use_container_width=True)
+                st.download_button("Download predictions", output.to_csv(index=False), "bankruptcy_predictions.csv")
+                if results:
+                    st.session_state["prediction"] = results[0]
     except (ValueError, KeyError, requests.RequestException) as error:
-        st.error(str(error))
+        st.error(f"Unable to predict uploaded data: {error}")
 
-st.subheader("Single-company prediction")
-with st.form("predict"):
-    columns = st.columns(3)
-    values = {name: columns[i % 3].number_input(name, value=0.0, format="%.6f") for i, name in enumerate(names)}
-    submit = st.form_submit_button("Predict", type="primary")
-if submit:
-    try:
-        response = requests.post(API + "/predict", json={"values": values}, timeout=30)
-        response.raise_for_status()
-        st.session_state["prediction"] = response.json()
-    except requests.RequestException as error:
-        st.error(str(error))
+st.subheader("2. Manual input (advanced)")
+st.caption("Default zero inputs are placeholders, not realistic companies. Use a real feature-complete CSV for meaningful tests.")
+with st.expander("Enter all financial ratios manually"):
+    with st.form("predict"):
+        columns = st.columns(3)
+        values = {name: columns[i % 3].number_input(name, value=0.0, format="%.6f") for i, name in enumerate(names)}
+        submit = st.form_submit_button("Predict manually")
+    if submit:
+        try:
+            st.session_state["prediction"] = request_prediction(values)
+        except requests.RequestException as error:
+            st.error(f"Prediction failed: {error}")
+
 result = st.session_state.get("prediction")
 if result:
-    st.metric("Estimated bankruptcy probability", f"{result['probability']:.1%}")
-    st.metric("Predicted class (1 = bankruptcy)", result["prediction"])
+    st.subheader("3. Risk screening result")
+    a,b,c = st.columns(3)
+    a.metric("Calibrated risk estimate", f"{result['probability']:.1%}")
+    b.metric("Review alert threshold", f"{result['decision_threshold']:.1%}")
+    c.metric("Model decision", result["risk_label"])
+    st.caption("A screening flag is not confirmation of bankruptcy. Threshold selected from separate development data; evaluation and limitations are in artifacts/metrics.json.")
     explanation = result.get("explanation")
     if explanation:
-        st.subheader("Local SHAP contributions")
-        st.caption(explanation["note"])
+        st.subheader("Why did the model assign this score?")
+        st.caption("Contributions below describe the base logistic-regression score in log-odds, before probability calibration.")
         chart = pd.DataFrame({"Feature": explanation["feature_names"], "SHAP log-odds": explanation["shap_values_log_odds"]})
-        chart = chart.iloc[chart["SHAP log-odds"].abs().sort_values(ascending=False).index[:20]]
-        st.plotly_chart(px.bar(chart, x="SHAP log-odds", y="Feature", orientation="h", title="Largest contributions (log-odds)"), use_container_width=True)
+        chart = chart.loc[chart["SHAP log-odds"].abs().sort_values(ascending=False).index].head(20)
+        fig = px.bar(chart.sort_values("SHAP log-odds"), x="SHAP log-odds", y="Feature",
+                     orientation="h", color="SHAP log-odds", color_continuous_scale="RdBu_r",
+                     title="Top contributing financial indicators")
+        fig.update_layout(height=650, coloraxis_showscale=False)
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("Positive values raise bankruptcy log-odds; negative values reduce them. SHAP is not a causal explanation.")
     else:
         st.warning("SHAP explanation unavailable; prediction shown without an explanation.")
