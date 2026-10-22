@@ -88,10 +88,22 @@ def train():
     predict_calibrated = lambda data: calibrator.predict_proba(model.decision_function(data).reshape(-1, 1))[:, 1]
     p_thr = predict_calibrated(X_thr)
     choice, threshold_candidates = choose_threshold(y_thr, p_thr)
+    high_recall, _ = choose_threshold(y_thr, p_thr, min_recall=0.85)
+    modes = {"high_recall": float(high_recall["threshold"]), "higher_precision": float(choice["threshold"])}
 
     p_test = predict_calibrated(X_test)
     raw_test = model.predict_proba(X_test)[:, 1]
     predictions = (p_test >= choice["threshold"]).astype(int)
+    mode_evaluation = {}
+    for mode_name, cutoff in modes.items():
+        decisions = (p_test >= cutoff).astype(int)
+        mode_evaluation[mode_name] = {
+            "threshold": cutoff,
+            "confusion_matrix": confusion_matrix(y_test, decisions).tolist(),
+            "precision": float(precision_score(y_test, decisions, zero_division=0)),
+            "recall": float(recall_score(y_test, decisions, zero_division=0)),
+            "f1": float(f1_score(y_test, decisions, zero_division=0))
+        }
     selected = X.columns[model.named_steps["selector"].get_support()].tolist()
     precision, recall, _ = precision_recall_curve(y_test, p_test)
 
@@ -105,6 +117,8 @@ def train():
         "calibration_method": "Platt sigmoid on independent calibration partition",
         "threshold_selection": "Maximize precision subject to >=70% recall on independent threshold-tuning partition",
         "threshold": choice["threshold"],
+        "screening_modes": mode_evaluation,
+        "screening_mode_thresholds": modes,
         "threshold_tuning_metrics": choice,
         "holdout_average_precision": float(average_precision_score(y_test, p_test)),
         "holdout_roc_auc": float(roc_auc_score(y_test, p_test)),
@@ -117,10 +131,31 @@ def train():
     }
     ARTIFACTS.mkdir(exist_ok=True)
     background = model[:-1].transform(X_fit.sample(n=min(200, len(X_fit)), random_state=42))
-    joblib.dump({"pipeline": model, "calibrator": calibrator, "threshold": choice["threshold"],
+    joblib.dump({"pipeline": model, "calibrator": calibrator, "threshold": choice["threshold"], "mode_thresholds": modes,
                  "feature_names": X.columns.tolist(), "shap_background": background},
                 ARTIFACTS / "model.joblib")
     (ARTIFACTS / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    # Diagnostic curves are reported only; never used to select thresholds.
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib import pyplot as plt
+    from sklearn.calibration import calibration_curve
+    fig, ax = plt.subplots()
+    ax.plot(recall, precision, label="Model")
+    ax.axhline(float(y_test.mean()), linestyle="--", label="Prevalence")
+    ax.set(xlabel="Recall", ylabel="Precision", title="Holdout precision–recall curve")
+    ax.legend()
+    fig.savefig(ARTIFACTS / "precision_recall_curve.png", dpi=160, bbox_inches="tight")
+    plt.close(fig)
+    observed, estimated = calibration_curve(y_test, p_test, n_bins=8, strategy="quantile")
+    fig, ax = plt.subplots()
+    ax.plot(estimated, observed, marker="o", label="Calibrated")
+    ax.plot([0, 1], [0, 1], linestyle="--", label="Ideal")
+    ax.set(xlabel="Mean predicted risk", ylabel="Observed bankruptcy rate",
+           title="Holdout calibration diagnostic", xlim=(0, 1), ylim=(0, 1))
+    ax.legend()
+    fig.savefig(ARTIFACTS / "calibration_curve.png", dpi=160, bbox_inches="tight")
+    plt.close(fig)
     (ARTIFACTS / "threshold_candidates.json").write_text(json.dumps(threshold_candidates, indent=2), encoding="utf-8")
     print(json.dumps({k:v for k,v in metrics.items() if k not in ("classification_report", "selected_features")}, indent=2))
     return metrics
